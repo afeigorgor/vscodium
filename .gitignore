@@ -1,7 +1,21 @@
-vscode
+vscode*
 VS*/*
+VSCode*
+VSCodium*
 .DS_Store
+*.env
+assets/
 build/linux/appimage/out
+build/linux/appimage/pkg2appimage.AppDir
+build/linux/appimage/pkg2appimage-*.AppImage
+build/linux/appimage/pkg2appimage.AppImage
+build/linux/appimage/squashfs-root
+build/linux/appimage/VSCodium
 build/windows/msi/releasedir
-build/windows/rtf/Readme (Abridged).txt
-build/windows/rtf/TXT to RTF Converter.exe
+build/windows/msi/Files*.wxs
+build/windows/msi/Files*.wixobj
+sourcemaps/
+stores/snapcraft/insider/*.snap
+stores/snapcraft/stable/*.snap
+font-size/node_modules/
+font-size/generate-css.js

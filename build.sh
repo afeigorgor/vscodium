@@ -1,70 +1,89 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# shellcheck disable=SC1091
 
 set -ex
 
-if [[ "${SHOULD_BUILD}" == "yes" ]]; then
-  npm config set scripts-prepend-node-path true
+. version.sh
 
-  echo "MS_COMMIT: ${MS_COMMIT}"
+if [[ "${SHOULD_BUILD}" == "yes" ]]; then
+  echo "MS_COMMIT=\"${MS_COMMIT}\""
+
+  export MAX_OLD_SPACE_SIZE="${MAX_OLD_SPACE_SIZE:-8192}"
 
   . prepare_vscode.sh
 
-  cd vscode || exit
+  cd vscode || { echo "'vscode' dir not found"; exit 1; }
 
-  yarn monaco-compile-check
-  yarn valid-layers-check
+  export NODE_OPTIONS="--max-old-space-size=${MAX_OLD_SPACE_SIZE}"
+  export VSCODE_PUBLISH_COUNTER=1
 
-  yarn gulp compile-build
-  yarn gulp compile-extension-media
-  yarn gulp compile-extensions-build
-  yarn gulp minify-vscode
+  npm run gulp vscode-min-prepack
 
   if [[ "${OS_NAME}" == "osx" ]]; then
-    yarn gulp "vscode-darwin-${VSCODE_ARCH}-min-ci"
+    # remove win32 node modules
+    rm -f .build/extensions/ms-vscode.js-debug/src/win32-app-container-tokens.*.node
+
+    # generate Group Policy definitions
+    npm run copy-policy-dto --prefix build
+    node build/lib/policies/policyGenerator.ts build/lib/policies/policyData.jsonc darwin
+
+    npm run gulp "vscode-darwin-${VSCODE_ARCH}-min-packing"
+
+    find "../VSCode-darwin-${VSCODE_ARCH}" -print0 | xargs -0 touch -c
+
+    . ../build_cli.sh
+
+    VSCODE_PLATFORM="darwin"
   elif [[ "${OS_NAME}" == "windows" ]]; then
-    . ../build/windows/rtf/make.sh
+    # in CI, packaging will be done by a different job
+    if [[ "${CI_BUILD}" == "no" ]]; then
+      . ../build/windows/rtf/make.sh
 
-    yarn gulp "vscode-win32-${VSCODE_ARCH}-min-ci"
-    yarn gulp "vscode-win32-${VSCODE_ARCH}-code-helper"
-    yarn gulp "vscode-win32-${VSCODE_ARCH}-inno-updater"
-
-    if [[ "${SHOULD_BUILD_ZIP}" != "no" ]]; then
-      yarn gulp "vscode-win32-${VSCODE_ARCH}-archive"
-    fi
-
-    if [[ "${SHOULD_BUILD_EXE_SYS}" != "no" ]]; then
-      yarn gulp "vscode-win32-${VSCODE_ARCH}-system-setup"
-    fi
-
-    if [[ "${SHOULD_BUILD_EXE_USR}" != "no" ]]; then
-      yarn gulp "vscode-win32-${VSCODE_ARCH}-user-setup"
-    fi
-
-    if [[ "${VSCODE_ARCH}" == "ia32" || "${VSCODE_ARCH}" == "x64" ]]; then
-      if [[ "${SHOULD_BUILD_MSI}" != "no" ]]; then
-        . ../build/windows/msi/build.sh
+      if [[ "${VSCODE_ARCH}" == "x64" ]]; then
+        . ../build/windows/install_inno_update.sh
       fi
 
-      if [[ "${SHOULD_BUILD_MSI_NOUP}" != "no" ]]; then
-        . ../build/windows/msi/build-updates-disabled.sh
+      # generate Group Policy definitions
+      npm run copy-policy-dto --prefix build
+      node build/lib/policies/policyGenerator.ts build/lib/policies/policyData.jsonc win32
+
+      npm run gulp "vscode-win32-${VSCODE_ARCH}-min-packing"
+
+      if [[ "${VSCODE_ARCH}" != "x64" ]]; then
+        SHOULD_BUILD_REH="no"
+        SHOULD_BUILD_REH_WEB="no"
       fi
+
+      . ../build_cli.sh
     fi
+
+    VSCODE_PLATFORM="win32"
   else # linux
-    yarn gulp "vscode-linux-${VSCODE_ARCH}-min-ci"
+    # remove win32 node modules
+    rm -f .build/extensions/ms-vscode.js-debug/src/win32-app-container-tokens.*.node
 
-    if [[ "${SKIP_LINUX_PACKAGES}" != "True" ]]; then
-      if [[ "${SHOULD_BUILD_DEB}" != "no" || "${SHOULD_BUILD_APPIMAGE}" != "no" ]]; then
-        yarn gulp "vscode-linux-${VSCODE_ARCH}-build-deb"
-      fi
+    # in CI, packaging will be done by a different job
+    if [[ "${CI_BUILD}" == "no" ]]; then
+      # generate Group Policy definitions
+      npm run copy-policy-dto --prefix build
+      node build/lib/policies/policyGenerator.ts build/lib/policies/policyData.jsonc linux
 
-      if [[ "${SHOULD_BUILD_RPM}" != "no" ]]; then
-        yarn gulp "vscode-linux-${VSCODE_ARCH}-build-rpm"
-      fi
+      npm run gulp "vscode-linux-${VSCODE_ARCH}-min-packing"
 
-      if [[ "${SHOULD_BUILD_APPIMAGE}" != "no" ]]; then
-        . ../build/linux/appimage/build.sh
-      fi
+      find "../VSCode-linux-${VSCODE_ARCH}" -print0 | xargs -0 touch -c
+
+      . ../build_cli.sh
     fi
+
+    VSCODE_PLATFORM="linux"
+  fi
+
+  if [[ "${SHOULD_BUILD_REH}" != "no" ]]; then
+    npm run gulp "vscode-reh-${VSCODE_PLATFORM}-${VSCODE_ARCH}-min-packing"
+  fi
+
+  if [[ "${SHOULD_BUILD_REH_WEB}" != "no" ]]; then
+    npm run gulp "vscode-reh-web-${VSCODE_PLATFORM}-${VSCODE_ARCH}-min-packing"
   fi
 
   cd ..
